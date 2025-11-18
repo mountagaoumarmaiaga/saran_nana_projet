@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Entreprise {
+  id      String  @id @default(uuid())
+  name    String
+  email   String? @unique
+  address String?
+  tvaRate Float   @default(18.0)
+
+  clients       Client[]
+  invoices      Invoice[]
+  products      Product[]
+  categories    Category[]
+  subCategories SubCategory[]
+  transactions  Transaction[]
+  destinations  Destination[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("entreprises")
+}
+
+model Client {
+  id      String  @id @default(uuid())
+  name    String
+  email   String? @unique
+  phone   String?
+  address String
+
+  invoices     Invoice[]
+  entrepriseId String?
+  entreprise   Entreprise? @relation(fields: [entrepriseId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("clients")
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique
+  date          DateTime      @default(now())
+  status        InvoiceStatus @default(UNPAID)
+  subtotal      Float
+  tva           Float         @default(18.0)
+  totalAmount   Float
+
+  clientId     String
+  entrepriseId String?
+
+  client       Client        @relation(fields: [clientId], references: [id])
+  entreprise   Entreprise?   @relation(fields: [entrepriseId], references: [id])
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  reference   String? @unique
+  name        String
+  description String
+  quantity    Int     @default(0)
+  unit        String
+  price       Float
+  imageUrl    String
+
+  categoryId    String
+  subCategoryId String?
+  entrepriseId  String?
+
+  category     Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  subCategory  SubCategory?  @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+  entreprise   Entreprise?   @relation(fields: [entrepriseId], references: [id])
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+model Category {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+
+  entrepriseId  String?
+  entreprise    Entreprise?   @relation(fields: [entrepriseId], references: [id])
+  products      Product[]
+  subCategories SubCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("categories")
+}
+
+model SubCategory {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products   Product[]
+
+  entrepriseId String?
+  entreprise   Entreprise? @relation(fields: [entrepriseId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sub_categories")
+}
+
+model Destination {
+  id           String  @id @default(uuid())
+  name         String
+  description  String?
+  entrepriseId String?
+
+  entreprise   Entreprise?   @relation(fields: [entrepriseId], references: [id])
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("destinations")
+}
+
+model Transaction {
+  id            String          @id @default(uuid())
+  type          TransactionType
+  quantity      Int
+  price         Float
+  subtotal      Float
+  productId     String
+  entrepriseId  String?
+  destinationId String?
+  invoiceId     String?
+
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  entreprise  Entreprise?  @relation(fields: [entrepriseId], references: [id])
+  destination Destination? @relation(fields: [destinationId], references: [id])
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("transactions")
+}
+
+enum InvoiceStatus {
+  PAID
+  UNPAID
+  PENDING
+}
+
+enum TransactionType {
+  SALE
+  PURCHASE
+  RETURN
+}
