@@ -167,52 +167,117 @@ const Stock: React.FC<StockProps> = ({ onClose }) => {
                (price === '' || price >= 0)
     }
 
-    // Statistiques rapides
+    // Statistiques rapides - CORRIGÉ
     const getStockStats = () => {
         const totalProducts = products.length
         const lowStockProducts = products.filter(p => p.quantity <= 10).length
         const outOfStockProducts = products.filter(p => p.quantity === 0).length
-        const totalValue = products.reduce((sum, p) => sum + (p.quantity * p.price), 0)
+        
+        // CORRECTION : Calcul correct de la valeur totale du stock
+        const totalValue = products.reduce((sum, product) => {
+            // Conversion sécurisée des valeurs
+            const quantity = Number(product.quantity) || 0
+            const price = Number(product.price) || 0
+            
+            // Vérification que les valeurs sont valides
+            if (isNaN(quantity) || isNaN(price)) {
+                console.warn(`Produit ${product.name} a des valeurs invalides:`, { 
+                    quantity: product.quantity, 
+                    price: product.price 
+                })
+                return sum
+            }
+            
+            return sum + (quantity * price)
+        }, 0)
 
-        return { totalProducts, lowStockProducts, outOfStockProducts, totalValue }
+        return { 
+            totalProducts, 
+            lowStockProducts, 
+            outOfStockProducts, 
+            totalValue 
+        }
     }
 
     const stats = getStockStats()
 
+    // Fonction pour formater les nombres - CORRIGÉ
+    const formatNumber = (num: number): string => {
+        if (isNaN(num) || !isFinite(num)) return '0'
+        return Math.round(num).toLocaleString('fr-FR')
+    }
+
+    // Fonction pour formater la valeur monétaire - CORRIGÉ
+    const formatCurrency = (amount: number): string => {
+        if (isNaN(amount) || !isFinite(amount)) return '0 CFA'
+        
+        // Arrondir à l'unité pour éviter les décimales
+        const roundedAmount = Math.round(amount)
+        return `${roundedAmount.toLocaleString('fr-FR')} CFA`
+    }
+
+    // Fonction de debug temporaire pour vérifier le calcul
+    const debugStockValue = () => {
+        console.log("=== DEBUG VALEUR STOCK ===")
+        products.forEach((product, index) => {
+            const quantity = Number(product.quantity) || 0
+            const price = Number(product.price) || 0
+            const value = quantity * price
+            
+            console.log(`${index + 1}. ${product.name}:`)
+            console.log(`   Stock: ${product.quantity} → ${quantity}`)
+            console.log(`   Prix: ${product.price} → ${price}`)
+            console.log(`   Valeur: ${value} CFA`)
+        })
+        
+        const total = products.reduce((sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0)
+        console.log(`TOTAL CALCULÉ: ${total} CFA`)
+        console.log("===========================")
+    }
+
     return (
         <div className="space-y-6 p-1">
-            {/* En-tête avec statistiques */}
+            {/* Bouton debug temporaire - à retirer en production */}
+            <button 
+                onClick={debugStockValue}
+                className="btn btn-xs btn-outline absolute top-2 right-2"
+                style={{zIndex: 1000}}
+            >
+                Debug Stock
+            </button>
+
+            {/* En-tête avec statistiques - CORRIGÉ */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="stat bg-base-100 rounded-lg shadow">
+                <div className="stat bg-base-100 rounded-lg shadow p-4">
                     <div className="stat-figure text-primary">
                         <Package className="w-8 h-8" />
                     </div>
-                    <div className="stat-title">Total Produits</div>
-                    <div className="stat-value text-lg">{stats.totalProducts}</div>
+                    <div className="stat-title text-sm">Total Produits</div>
+                    <div className="stat-value text-lg">{formatNumber(stats.totalProducts)}</div>
                 </div>
                 
-                <div className="stat bg-base-100 rounded-lg shadow">
+                <div className="stat bg-base-100 rounded-lg shadow p-4">
                     <div className="stat-figure text-warning">
                         <Package className="w-8 h-8" />
                     </div>
-                    <div className="stat-title">Stock Faible</div>
-                    <div className="stat-value text-lg">{stats.lowStockProducts}</div>
+                    <div className="stat-title text-sm">Stock Faible</div>
+                    <div className="stat-value text-lg">{formatNumber(stats.lowStockProducts)}</div>
                 </div>
                 
-                <div className="stat bg-base-100 rounded-lg shadow">
+                <div className="stat bg-base-100 rounded-lg shadow p-4">
                     <div className="stat-figure text-error">
                         <Package className="w-8 h-8" />
                     </div>
-                    <div className="stat-title">Rupture</div>
-                    <div className="stat-value text-lg">{stats.outOfStockProducts}</div>
+                    <div className="stat-title text-sm">Rupture</div>
+                    <div className="stat-value text-lg">{formatNumber(stats.outOfStockProducts)}</div>
                 </div>
                 
-                <div className="stat bg-base-100 rounded-lg shadow">
+                <div className="stat bg-base-100 rounded-lg shadow p-4">
                     <div className="stat-figure text-success">
                         <Package className="w-8 h-8" />
                     </div>
-                    <div className="stat-title">Valeur Stock</div>
-                    <div className="stat-value text-lg">{stats.totalValue.toFixed(0)}CFA</div>
+                    <div className="stat-title text-sm">Valeur Stock</div>
+                    <div className="stat-value text-lg">{formatCurrency(stats.totalValue)}</div>
                 </div>
             </div>
 
@@ -318,7 +383,7 @@ const Stock: React.FC<StockProps> = ({ onClose }) => {
                                         Stock actuel: {selectedProduct?.quantity || 0} {selectedProduct?.unit}
                                     </span>
                                     <span className="label-text-alt text-success">
-                                        Nouveau stock: {(selectedProduct?.quantity || 0) + quantity}
+                                        Nouveau stock: {(Number(selectedProduct?.quantity) || 0) + quantity}
                                     </span>
                                 </label>
                             </div>
@@ -350,27 +415,29 @@ const Stock: React.FC<StockProps> = ({ onClose }) => {
                             </div>
                         </div>
 
-                        {/* Résumé de l'opération */}
+                        {/* Résumé de l'opération - CORRIGÉ */}
                         {quantity > 0 && (
                             <div className="bg-primary/10 rounded-2xl p-4 border border-primary/20">
-                                <h4 className="font-semibold text-primary mb-2">Résumé de l&opération</h4>
+                                <h4 className="font-semibold text-primary mb-2">Résumé de opération</h4>
                                 <div className="grid grid-cols-2 gap-2 text-sm">
                                     <div>Quantité ajoutée:</div>
                                     <div className="font-semibold">{quantity} {selectedProduct?.unit}</div>
                                     
                                     <div>Prix unitaire:</div>
                                     <div className="font-semibold">
-                                        {price !== '' ? `${price} XOF` : `${selectedProduct?.price || 0} CFA`}
+                                        {price !== '' ? `${price} CFA` : `${selectedProduct?.price || 0} CFA`}
                                     </div>
                                     
                                     <div>Coût total:</div>
                                     <div className="font-semibold text-success">
-                                        {((price !== '' ? price : selectedProduct?.price || 0) * quantity).toFixed(2)} CFA
+                                        {formatCurrency(
+                                            (price !== '' ? Number(price) : Number(selectedProduct?.price) || 0) * quantity
+                                        )}
                                     </div>
                                     
                                     <div>Nouveau stock:</div>
                                     <div className="font-semibold">
-                                        {(selectedProduct?.quantity || 0) + quantity} {selectedProduct?.unit}
+                                        {(Number(selectedProduct?.quantity) || 0) + quantity} {selectedProduct?.unit}
                                     </div>
                                 </div>
                             </div>

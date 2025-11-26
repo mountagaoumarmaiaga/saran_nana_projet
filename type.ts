@@ -35,6 +35,7 @@ export interface Product {
   quantity: number;
   unit: string;
   price: number;
+  purchasePrice?: number
   imageUrl: string;
   categoryId: string;
   subCategoryId?: string | null;
@@ -118,6 +119,7 @@ export interface Transaction {
   invoiceId?: string | null;
   createdAt: Date;
   categoryName?: string;
+  purchasePrice?: number
   productName?: string;
   imageUrl?: string;
   unit?: string;

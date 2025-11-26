@@ -1,7 +1,7 @@
 import { Product } from '@/type'
 import React from 'react'
 import ProductImage from './ProductImage'
-import { Plus, Package, Tag, Scale, Euro } from 'lucide-react'
+import { Plus, Package, Tag, Scale, Euro, TrendingUp } from 'lucide-react'
 
 interface ProductComponentProps {
     product?: Product | null
@@ -10,6 +10,7 @@ interface ProductComponentProps {
     variant?: 'default' | 'compact' | 'detailed'
     showPrice?: boolean
     showStock?: boolean
+    showPurchasePrice?: boolean
     className?: string
 }
 
@@ -20,6 +21,7 @@ const ProductComponent: React.FC<ProductComponentProps> = ({
     variant = 'default',
     showPrice = true,
     showStock = true,
+    showPurchasePrice = false,
     className = ''
 }) => {
     if (!product) {
@@ -62,10 +64,19 @@ const ProductComponent: React.FC<ProductComponentProps> = ({
 
     const stockStatus = getStockStatus(product.quantity)
 
+    // Calculer la marge si les deux prix sont disponibles
+    const margin = product.purchasePrice && product.price 
+        ? product.price - product.purchasePrice 
+        : null;
+    
+    const marginPercentage = product.purchasePrice && margin 
+        ? (margin / product.purchasePrice) * 100 
+        : null;
+
     return (
         <div className={`border-2 border-base-200 bg-base-100 rounded-3xl w-full flex items-center transition-all hover:shadow-md ${currentVariant.container} ${className}`}>
-            {/* Image du produit */}
-            <div className="flex-shrink-0">
+            {/* Image du produit - CORRECTION: shrink-0 au lieu de flex-shrink-0 */}
+            <div className="shrink-0">
                 <ProductImage
                     src={product.imageUrl}
                     alt={product.name}
@@ -86,11 +97,36 @@ const ProductComponent: React.FC<ProductComponentProps> = ({
                             {product.name}
                         </h2>
                         
+                        {/* Prix d'achat */}
+                        {showPurchasePrice && product.purchasePrice && (
+                            <div className="flex items-center gap-1 mt-1">
+                                <TrendingUp className="w-3 h-3 text-warning" />
+                                <span className="text-warning font-semibold text-sm">
+                                    Coût: {product.purchasePrice.toFixed(2)} CFA
+                                </span>
+                            </div>
+                        )}
+                        
+                        {/* Prix de vente */}
                         {showPrice && product.price > 0 && (
                             <div className="flex items-center gap-1 mt-1">
                                 <Euro className="w-3 h-3 text-success" />
                                 <span className="text-success font-semibold">
                                     {product.price.toFixed(2)} CFA
+                                </span>
+                            </div>
+                        )}
+                        
+                        {/* Marge */}
+                        {showPurchasePrice && margin !== null && (
+                            <div className="flex items-center gap-1 mt-1">
+                                <span className="text-success font-semibold text-sm">
+                                    Marge: {margin.toFixed(2)} CFA
+                                    {marginPercentage && (
+                                        <span className="text-xs ml-1">
+                                            ({marginPercentage.toFixed(1)}%)
+                                        </span>
+                                    )}
                                 </span>
                             </div>
                         )}
@@ -100,7 +136,7 @@ const ProductComponent: React.FC<ProductComponentProps> = ({
                     {add && handleAddToCart && (
                         <button
                             onClick={() => handleAddToCart(product)}
-                            className={`btn btn-primary flex-shrink-0 ${
+                            className={`btn btn-primary shrink-0 ${
                                 variant === 'compact' ? 'btn-sm btn-circle' : 'btn-sm'
                             }`}
                             title="Ajouter au panier"

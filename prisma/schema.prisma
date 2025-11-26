@@ -43,7 +43,7 @@ model Client {
 
 model Invoice {
   id            String        @id @default(cuid())
-  invoiceNumber String        @unique
+  invoiceNumber String
   date          DateTime      @default(now())
   status        InvoiceStatus @default(UNPAID)
   subtotal      Float
@@ -57,6 +57,7 @@ model Invoice {
   entreprise    Entreprise?   @relation(fields: [entrepriseId], references: [id])
   transactions  Transaction[]
 
+  @@unique([invoiceNumber, entrepriseId])
   @@map("invoices")
 }
 

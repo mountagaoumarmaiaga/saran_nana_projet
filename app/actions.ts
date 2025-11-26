@@ -1182,6 +1182,18 @@ export async function createInvoice(data: {
         const entreprise = await getEntreprise(email)
         if (!entreprise) throw new Error("Entreprise non trouvée")
 
+        // ✅ VÉRIFIER SI LE NUMÉRO DE FACTURE EXISTE DÉJÀ POUR CETTE ENTREPRISE
+        const existingInvoice = await prisma.invoice.findFirst({
+            where: {
+                invoiceNumber: data.invoiceNumber,
+                entrepriseId: entreprise.id // Vérifier seulement pour cette entreprise
+            }
+        })
+
+        if (existingInvoice) {
+            throw new Error(`Le numéro de facture "${data.invoiceNumber}" existe déjà dans votre entreprise.`)
+        }
+
         // ✅ VÉRIFICATION PRÉALABLE DES STOCKS
         if (data.transactions && data.transactions.length > 0) {
             console.log("🔍 Vérification des stocks avant création de facture...")
@@ -1262,7 +1274,7 @@ export async function createInvoice(data: {
                     tva: data.tva || entreprise.tvaRate || 20,
                     totalAmount: data.totalAmount,
                     status: data.status || 'UNPAID',
-                    entrepriseId: entreprise.id,
+                    entrepriseId: entreprise.id, // Bien spécifier l'entreprise
                     date: new Date()
                 },
                 include: {
@@ -1365,6 +1377,16 @@ export async function createInvoice(data: {
             }
             if (error.message.includes('Stock négatif')) {
                 throw new Error(`❌ ${error.message}`)
+            }
+            if (error.message.includes('numéro de facture')) {
+                throw new Error(`❌ ${error.message}`)
+            }
+        }
+        
+        // Gestion spécifique des erreurs Prisma
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            if (error.code === 'P2002') {
+                throw new Error("❌ Une facture avec ce numéro existe déjà dans votre entreprise.")
             }
         }
         
@@ -2205,8 +2227,8 @@ export async function updateInvoice(
         },
       });
 
-      // 5. Mettre à jour la facture
-      const updatedInvoice = await tx.invoice.update({
+      // 5. Mettre à jour la facture (sans stocker le résultat inutile)
+      await tx.invoice.update({
         where: {
           id: invoiceId,
         },
