@@ -400,3 +400,70 @@ export interface Entreprise {
   createdAt: Date;
   updatedAt: Date;
 }
+// Ajoutez ces types à votre fichier type.ts
+
+// =============================================
+// TYPES POUR LES ANALYTICS ET VENTES QUOTIDIENNES
+// =============================================
+
+export interface DailySales {
+  date: string
+  totalAmount: number
+  transactionCount: number
+}
+
+export interface DailySalesWithDetails extends DailySales {
+  formattedDate: string
+  formattedAmount: string
+  transactions?: {
+    time: string
+    productName: string
+    quantity: number
+    amount: number
+    invoiceNumber?: string
+    clientName?: string
+  }[]
+}
+
+export interface DailyFinancialSummary {
+  date: string
+  formattedDate: string
+  totalSales: number
+  formattedSales: string
+  totalPurchases: number
+  formattedPurchases: string
+  netAmount: number
+  formattedNet: string
+  transactionCount: number
+  salesCount: number
+  purchasesCount: number
+}
+
+export interface MonthlySales {
+  month: string
+  totalAmount: number
+  transactionCount: number
+  averageTicket: number
+}
+
+export interface TopProduct {
+  productId: string
+  productName: string
+  totalQuantity: number
+  totalAmount: number
+  categoryName: string
+}
+
+export interface SalesPerformance {
+  currentMonth: {
+    totalAmount: number
+    transactionCount: number
+    averageTicket: number
+  }
+  previousMonth: {
+    totalAmount: number
+    transactionCount: number
+    averageTicket: number
+  }
+  growthRate: number
+}

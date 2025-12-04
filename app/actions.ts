@@ -26,7 +26,8 @@ import {
     Destination,
     Entreprise,
     ClientStats,
-    
+    DailySales,
+    DailyFinancialSummary
 } from "@/type"
 import { Category, Prisma, SubCategory } from "@prisma/client"
 import {
@@ -70,6 +71,208 @@ export async function getEntreprise(email: string): Promise<Entreprise | null> {
         console.error("Erreur récupération entreprise:", error)
         throw error
     }
+}
+
+// =============================================
+// FONCTIONS POUR LES STATISTIQUES ET ANALYTICS
+// =============================================
+
+export async function getDailySales(email: string): Promise<DailySales[]> {
+  try {
+    console.log("📊 Récupération des ventes quotidiennes pour:", email)
+    
+    const entreprise = await getEntreprise(email)
+    if (!entreprise) throw new Error("Entreprise non trouvée")
+
+    // Récupérer les 30 derniers jours
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    thirtyDaysAgo.setHours(0, 0, 0, 0) // Début de la journée
+    
+    console.log("📅 Période: 30 derniers jours, depuis", thirtyDaysAgo)
+
+    // Récupérer toutes les ventes des 30 derniers jours
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        entrepriseId: entreprise.id,
+        type: 'SALE',
+        createdAt: {
+          gte: thirtyDaysAgo
+        }
+      },
+      select: {
+        createdAt: true,
+        subtotal: true,
+        quantity: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    })
+
+    console.log(`📈 ${transactions.length} transactions trouvées`)
+
+    // Créer un objet pour regrouper par date
+    const salesByDate: Record<string, DailySales> = {}
+
+    // Initialiser les 30 derniers jours (même avec 0 vente)
+    for (let i = 0; i < 30; i++) {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      date.setHours(0, 0, 0, 0)
+      const dateKey = date.toISOString().split('T')[0] // Format: YYYY-MM-DD
+      
+      salesByDate[dateKey] = {
+        date: dateKey,
+        totalAmount: 0,
+        transactionCount: 0
+      }
+    }
+
+    // Grouper les ventes par date
+    transactions.forEach(transaction => {
+      const dateKey = transaction.createdAt.toISOString().split('T')[0]
+      
+      if (salesByDate[dateKey]) {
+        salesByDate[dateKey].totalAmount += Number(transaction.subtotal)
+        salesByDate[dateKey].transactionCount += 1
+      }
+    })
+
+    // Convertir en tableau et trier par date (du plus récent au plus ancien)
+    const result = Object.values(salesByDate)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+    console.log("✅ Ventes quotidiennes récupérées:", result.length, "jours")
+    console.log("📊 Exemple de données:", result.slice(0, 3))
+    
+    return result
+  } catch (error) {
+    console.error("❌ Erreur récupération ventes quotidiennes:", error)
+    return []
+  }
+}
+
+export async function getDailyFinancialSummary(
+  email: string,
+  days: number = 30
+): Promise<DailyFinancialSummary[]> {
+  try {
+    console.log("💰 Récupération du bilan financier quotidien pour", days, "jours")
+    
+    const entreprise = await getEntreprise(email)
+    if (!entreprise) throw new Error("Entreprise non trouvée")
+
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+    startDate.setHours(0, 0, 0, 0)
+
+    // Récupérer toutes les transactions de la période
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        entrepriseId: entreprise.id,
+        createdAt: {
+          gte: startDate
+        }
+      },
+      select: {
+        createdAt: true,
+        type: true,
+        subtotal: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    })
+
+    // Initialiser le bilan pour chaque jour
+    const summaryByDate: Record<string, DailyFinancialSummary> = {}
+
+    for (let i = 0; i < days; i++) {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      date.setHours(0, 0, 0, 0)
+      const dateKey = date.toISOString().split('T')[0]
+      
+      summaryByDate[dateKey] = {
+        date: dateKey,
+        formattedDate: date.toLocaleDateString('fr-FR', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short'
+        }),
+        totalSales: 0,
+        formattedSales: '0 FCFA',
+        totalPurchases: 0,
+        formattedPurchases: '0 FCFA',
+        netAmount: 0,
+        formattedNet: '0 FCFA',
+        transactionCount: 0,
+        salesCount: 0,
+        purchasesCount: 0
+      }
+    }
+
+    // Calculer le bilan pour chaque jour
+    transactions.forEach(transaction => {
+      const dateKey = transaction.createdAt.toISOString().split('T')[0]
+      
+      if (summaryByDate[dateKey]) {
+        const amount = Number(transaction.subtotal)
+        
+        if (transaction.type === 'SALE') {
+          summaryByDate[dateKey].totalSales += amount
+          summaryByDate[dateKey].salesCount += 1
+          summaryByDate[dateKey].netAmount += amount
+        } else if (transaction.type === 'PURCHASE') {
+          summaryByDate[dateKey].totalPurchases += amount
+          summaryByDate[dateKey].purchasesCount += 1
+          summaryByDate[dateKey].netAmount -= amount
+        }
+        
+        summaryByDate[dateKey].transactionCount += 1
+      }
+    })
+
+    // Formater les montants
+    Object.values(summaryByDate).forEach(summary => {
+      summary.formattedSales = summary.totalSales.toLocaleString('fr-FR', {
+        style: 'currency',
+        currency: 'XOF'
+      })
+      summary.formattedPurchases = summary.totalPurchases.toLocaleString('fr-FR', {
+        style: 'currency',
+        currency: 'XOF'
+      })
+      summary.formattedNet = summary.netAmount.toLocaleString('fr-FR', {
+        style: 'currency',
+        currency: 'XOF'
+      })
+    })
+
+    // Convertir en tableau et trier par date (du plus récent au plus ancien)
+    const result = Object.values(summaryByDate)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+    // Calculer les totaux
+    const totals = {
+      totalSales: result.reduce((sum, day) => sum + day.totalSales, 0),
+      totalPurchases: result.reduce((sum, day) => sum + day.totalPurchases, 0),
+      totalNet: result.reduce((sum, day) => sum + day.netAmount, 0)
+    }
+
+    console.log("💰 Bilan calculé:", {
+      jours: result.length,
+      ventesTotal: totals.totalSales,
+      achatsTotal: totals.totalPurchases,
+      netTotal: totals.totalNet
+    })
+    
+    return result
+  } catch (error) {
+    console.error("❌ Erreur bilan financier:", error)
+    return []
+  }
 }
 
 // =============================================
