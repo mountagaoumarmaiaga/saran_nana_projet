@@ -84,14 +84,12 @@ export async function getDailySales(email: string): Promise<DailySales[]> {
     const entreprise = await getEntreprise(email)
     if (!entreprise) throw new Error("Entreprise non trouvée")
 
-    // Récupérer les 30 derniers jours
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    thirtyDaysAgo.setHours(0, 0, 0, 0) // Début de la journée
+    thirtyDaysAgo.setHours(0, 0, 0, 0)
     
     console.log("📅 Période: 30 derniers jours, depuis", thirtyDaysAgo)
 
-    // Récupérer toutes les ventes des 30 derniers jours
     const transactions = await prisma.transaction.findMany({
       where: {
         entrepriseId: entreprise.id,
@@ -112,15 +110,13 @@ export async function getDailySales(email: string): Promise<DailySales[]> {
 
     console.log(`📈 ${transactions.length} transactions trouvées`)
 
-    // Créer un objet pour regrouper par date
     const salesByDate: Record<string, DailySales> = {}
 
-    // Initialiser les 30 derniers jours (même avec 0 vente)
     for (let i = 0; i < 30; i++) {
       const date = new Date()
       date.setDate(date.getDate() - i)
       date.setHours(0, 0, 0, 0)
-      const dateKey = date.toISOString().split('T')[0] // Format: YYYY-MM-DD
+      const dateKey = date.toISOString().split('T')[0]
       
       salesByDate[dateKey] = {
         date: dateKey,
@@ -129,7 +125,6 @@ export async function getDailySales(email: string): Promise<DailySales[]> {
       }
     }
 
-    // Grouper les ventes par date
     transactions.forEach(transaction => {
       const dateKey = transaction.createdAt.toISOString().split('T')[0]
       
@@ -139,12 +134,10 @@ export async function getDailySales(email: string): Promise<DailySales[]> {
       }
     })
 
-    // Convertir en tableau et trier par date (du plus récent au plus ancien)
     const result = Object.values(salesByDate)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
     console.log("✅ Ventes quotidiennes récupérées:", result.length, "jours")
-    console.log("📊 Exemple de données:", result.slice(0, 3))
     
     return result
   } catch (error) {
@@ -167,7 +160,6 @@ export async function getDailyFinancialSummary(
     startDate.setDate(startDate.getDate() - days)
     startDate.setHours(0, 0, 0, 0)
 
-    // Récupérer toutes les transactions de la période
     const transactions = await prisma.transaction.findMany({
       where: {
         entrepriseId: entreprise.id,
@@ -185,7 +177,6 @@ export async function getDailyFinancialSummary(
       }
     })
 
-    // Initialiser le bilan pour chaque jour
     const summaryByDate: Record<string, DailyFinancialSummary> = {}
 
     for (let i = 0; i < days; i++) {
@@ -213,7 +204,6 @@ export async function getDailyFinancialSummary(
       }
     }
 
-    // Calculer le bilan pour chaque jour
     transactions.forEach(transaction => {
       const dateKey = transaction.createdAt.toISOString().split('T')[0]
       
@@ -234,7 +224,6 @@ export async function getDailyFinancialSummary(
       }
     })
 
-    // Formater les montants
     Object.values(summaryByDate).forEach(summary => {
       summary.formattedSales = summary.totalSales.toLocaleString('fr-FR', {
         style: 'currency',
@@ -250,22 +239,13 @@ export async function getDailyFinancialSummary(
       })
     })
 
-    // Convertir en tableau et trier par date (du plus récent au plus ancien)
     const result = Object.values(summaryByDate)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-    // Calculer les totaux
-    const totals = {
-      totalSales: result.reduce((sum, day) => sum + day.totalSales, 0),
-      totalPurchases: result.reduce((sum, day) => sum + day.totalPurchases, 0),
-      totalNet: result.reduce((sum, day) => sum + day.netAmount, 0)
-    }
-
     console.log("💰 Bilan calculé:", {
       jours: result.length,
-      ventesTotal: totals.totalSales,
-      achatsTotal: totals.totalPurchases,
-      netTotal: totals.totalNet
+      ventesTotal: result.reduce((sum, day) => sum + day.totalSales, 0),
+      achatsTotal: result.reduce((sum, day) => sum + day.totalPurchases, 0)
     })
     
     return result
@@ -853,6 +833,9 @@ export async function replenishStockWithTransaction(
             })
 
             return { updatedProduct, transaction }
+        }, {
+            maxWait: 10000,
+            timeout: 10000
         })
 
         const { updatedProduct, transaction } = result
@@ -908,56 +891,124 @@ export async function deductStockWithTransaction(
     destinationId?: string
 ): Promise<DeductStockResponse> {
     try {
-        const entreprise = await getEntreprise(email)
-        if (!entreprise) throw new Error("Entreprise non trouvée")
+        console.log("🔄 Début déduction stock - items:", orderItems.length);
+        
+        // Limiter le nombre d'items
+        if (orderItems.length > 50) {
+            return { 
+                success: false, 
+                message: "Trop de produits (max 50). Veuillez diviser votre commande." 
+            };
+        }
+        
+        const entreprise = await getEntreprise(email);
+        if (!entreprise) throw new Error("Entreprise non trouvée");
 
-        return await prisma.$transaction(async (tx) => {
-            for (const item of orderItems) {
-                const product = await tx.product.findUnique({
-                    where: { 
-                        id: item.productId, 
-                        entrepriseId: entreprise.id 
-                    }
-                })
-
-                if (!product) {
-                    throw new Error(`Produit ${item.productId} non trouvé`)
-                }
-
-                if (product.quantity < item.quantity) {
-                    throw new Error(`Stock insuffisant pour ${product.name}. Disponible: ${product.quantity}, Demandé: ${item.quantity}`)
-                }
-
-                const subtotal = item.quantity * product.price
-
-                await tx.product.update({
-                    where: { 
-                        id: item.productId, 
-                        entrepriseId: entreprise.id 
-                    },
-                    data: { quantity: { decrement: item.quantity } }
-                })
-
-                await tx.transaction.create({
-                    data: {
-                        type: "SALE",
-                        quantity: item.quantity,
-                        price: product.price,
-                        subtotal,
-                        productId: item.productId,
-                        entrepriseId: entreprise.id,
-                        ...(destinationId && { destinationId })
-                    }
-                })
+        // VÉRIFICATION PRÉALABLE DES STOCKS
+        console.log("🔍 Vérification rapide des stocks...");
+        const productIds = orderItems.map(item => item.productId);
+        
+        // Récupérer tous les produits en une seule requête
+        const products = await prisma.product.findMany({
+            where: { 
+                id: { in: productIds }, 
+                entrepriseId: entreprise.id 
+            },
+            select: {
+                id: true,
+                name: true,
+                quantity: true,
+                unit: true,
+                price: true
             }
-            return { success: true }
-        })
+        });
+
+        const productMap = new Map(products.map(p => [p.id, p]));
+
+        for (const item of orderItems) {
+            const product = productMap.get(item.productId);
+
+            if (!product) {
+                throw new Error(`Produit ${item.productId} non trouvé`);
+            }
+
+            if (product.quantity < item.quantity) {
+                throw new Error(
+                    `Stock insuffisant pour "${product.name}". ` +
+                    `Disponible: ${product.quantity} ${product.unit}, ` +
+                    `Demandé: ${item.quantity}`
+                );
+            }
+
+            if (item.quantity <= 0) {
+                throw new Error(`Quantité invalide pour "${product.name}": ${item.quantity}`);
+            }
+        }
+
+        console.log("✅ Tous les stocks sont suffisants");
+
+        // EXÉCUTION DE LA TRANSACTION OPTIMISÉE
+        return await prisma.$transaction(async (tx) => {
+            console.log("📦 Début transaction optimisée...");
+            
+            // Préparer toutes les opérations
+            const productUpdates = [];
+            const transactionCreates = [];
+            
+            for (const item of orderItems) {
+                const product = productMap.get(item.productId);
+                
+                if (!product) continue;
+
+                const subtotal = item.quantity * product.price;
+
+                // DÉDUCTION DU STOCK
+                productUpdates.push(
+                    tx.product.update({
+                        where: { 
+                            id: item.productId, 
+                            entrepriseId: entreprise.id 
+                        },
+                        data: { quantity: { decrement: item.quantity } }
+                    })
+                );
+
+                // CRÉATION DE LA TRANSACTION
+                transactionCreates.push(
+                    tx.transaction.create({
+                        data: {
+                            type: "SALE",
+                            quantity: item.quantity,
+                            price: product.price,
+                            subtotal,
+                            productId: item.productId,
+                            entrepriseId: entreprise.id,
+                            ...(destinationId && { destinationId }),
+                            createdAt: new Date()
+                        }
+                    })
+                );
+            }
+
+            // Exécuter en parallèle
+            await Promise.all(productUpdates);
+            await Promise.all(transactionCreates);
+
+            console.log("🎉 Toutes les transactions ont été créées avec succès");
+            return { success: true };
+        }, {
+            maxWait: 10000,
+            timeout: 10000
+        });
     } catch (error) {
-        console.error("Erreur déduction stock:", error)
+        console.error("❌ Erreur déduction stock:", error);
+        
         return { 
             success: false, 
-            message: error instanceof Error ? error.message : "Erreur inconnue" 
-        }
+            message: error instanceof Error 
+                ? error.message 
+                : "Erreur inconnue lors de la déduction du stock. Veuillez réessayer."
+        };
     }
 }
 
@@ -1364,7 +1415,7 @@ export async function searchClients(
 }
 
 // =============================================
-// FONCTIONS POUR LES FACTURES (CORRIGÉES)
+// FONCTIONS POUR LES FACTURES (OPTIMISÉES)
 // =============================================
 
 export async function createInvoice(data: {
@@ -1382,93 +1433,72 @@ export async function createInvoice(data: {
     }[];
 }, email: string): Promise<Invoice> {
     try {
-        const entreprise = await getEntreprise(email)
-        if (!entreprise) throw new Error("Entreprise non trouvée")
+        console.log("🔄 Création facture (optimisée):", data.invoiceNumber);
+        const entreprise = await getEntreprise(email);
+        if (!entreprise) throw new Error("Entreprise non trouvée");
 
-        // ✅ VÉRIFIER SI LE NUMÉRO DE FACTURE EXISTE DÉJÀ POUR CETTE ENTREPRISE
+        // LIMITER LE NOMBRE DE TRANSACTIONS
+        if (data.transactions && data.transactions.length > 30) {
+            throw new Error("Trop de produits dans la facture (max 30). Divisez votre facture.");
+        }
+
+        // VÉRIFICATION DU NUMÉRO DE FACTURE
         const existingInvoice = await prisma.invoice.findFirst({
             where: {
                 invoiceNumber: data.invoiceNumber,
-                entrepriseId: entreprise.id // Vérifier seulement pour cette entreprise
+                entrepriseId: entreprise.id
             }
-        })
+        });
 
         if (existingInvoice) {
-            throw new Error(`Le numéro de facture "${data.invoiceNumber}" existe déjà dans votre entreprise.`)
+            throw new Error(`Le numéro de facture "${data.invoiceNumber}" existe déjà.`);
         }
 
-        // ✅ VÉRIFICATION PRÉALABLE DES STOCKS
+        // VÉRIFICATION RAPIDE DES STOCKS
         if (data.transactions && data.transactions.length > 0) {
-            console.log("🔍 Vérification des stocks avant création de facture...")
+            const productIds = data.transactions.map(t => t.productId);
             
-            const stockVerifications = await Promise.all(
-                data.transactions.map(async (transactionData) => {
-                    const product = await prisma.product.findUnique({
-                        where: { 
-                            id: transactionData.productId,
-                            entrepriseId: entreprise.id
-                        },
-                        select: { 
-                            id: true,
-                            name: true, 
-                            quantity: true,
-                            unit: true
-                        }
-                    })
-                    
-                    return {
-                        product,
-                        transactionData,
-                        isValid: product && product.quantity >= transactionData.quantity && transactionData.quantity > 0,
-                        available: product?.quantity || 0,
-                        requested: transactionData.quantity
-                    }
-                })
-            )
+            const products = await prisma.product.findMany({
+                where: { 
+                    id: { in: productIds },
+                    entrepriseId: entreprise.id
+                },
+                select: { 
+                    id: true,
+                    name: true, 
+                    quantity: true,
+                    unit: true
+                }
+            });
 
-            const stockErrors = stockVerifications.filter(v => !v.isValid)
-            if (stockErrors.length > 0) {
-                const errorMessages = stockErrors.map(se => 
-                    `• "${se.product?.name || 'Produit inconnu'}": Disponible ${se.available} ${se.product?.unit || 'unité'}, Demandé ${se.requested}`
-                )
-                throw new Error(`STOCKS INSUFFISANTS:\n${errorMessages.join('\n')}`)
-            }
-
-            console.log("✅ Tous les stocks sont suffisants")
-        }
-
-        return await prisma.$transaction(async (tx) => {
-            // ✅ DOUBLE VÉRIFICATION DANS LA TRANSACTION
-            if (data.transactions && data.transactions.length > 0) {
-                console.log("🔍 Double vérification des stocks dans la transaction...")
+            const productMap = new Map(products.map(p => [p.id, p]));
+            
+            for (const transactionData of data.transactions) {
+                const product = productMap.get(transactionData.productId);
                 
-                for (const transactionData of data.transactions) {
-                    const product = await tx.product.findUnique({
-                        where: { 
-                            id: transactionData.productId,
-                            entrepriseId: entreprise.id
-                        }
-                    })
+                if (!product) {
+                    throw new Error(`Produit "${transactionData.productId}" non trouvé`);
+                }
 
-                    if (!product) {
-                        throw new Error(`Produit "${transactionData.productId}" non trouvé`)
-                    }
+                if (product.quantity < transactionData.quantity) {
+                    throw new Error(
+                        `Stock insuffisant pour "${product.name}". ` +
+                        `Disponible: ${product.quantity} ${product.unit}, ` +
+                        `Demandé: ${transactionData.quantity}`
+                    );
+                }
 
-                    if (product.quantity < transactionData.quantity) {
-                        throw new Error(
-                            `Stock insuffisant pour "${product.name}". ` +
-                            `Disponible: ${product.quantity} ${product.unit}, Demandé: ${transactionData.quantity}`
-                        )
-                    }
-
-                    if (transactionData.quantity <= 0) {
-                        throw new Error(`Quantité invalide pour "${product.name}": ${transactionData.quantity}`)
-                    }
+                if (transactionData.quantity <= 0) {
+                    throw new Error(`Quantité invalide pour "${product.name}": ${transactionData.quantity}`);
                 }
             }
+        }
 
-            // ✅ CRÉATION DE LA FACTURE
-            console.log("📝 Création de la facture...")
+        // CRÉATION DE LA FACTURE AVEC TRANSACTION OPTIMISÉE
+        return await prisma.$transaction(async (tx) => {
+            console.log("📝 Début transaction optimisée...");
+            
+            // 1. CRÉATION DE LA FACTURE
             const invoice = await tx.invoice.create({
                 data: {
                     invoiceNumber: data.invoiceNumber,
@@ -1477,9 +1507,98 @@ export async function createInvoice(data: {
                     tva: data.tva || entreprise.tvaRate || 20,
                     totalAmount: data.totalAmount,
                     status: data.status || 'UNPAID',
-                    entrepriseId: entreprise.id, // Bien spécifier l'entreprise
-                    date: new Date()
-                },
+                    entrepriseId: entreprise.id,
+                    date: new Date(),
+                    createdAt: new Date()
+                }
+            });
+
+            console.log(`✅ Facture créée: ${invoice.invoiceNumber}`);
+
+            // 2. CRÉATION DES TRANSACTIONS ET DÉDUCTION DES STOCKS
+            if (data.transactions && data.transactions.length > 0) {
+                console.log(`📦 Création de ${data.transactions.length} transactions...`);
+                
+                // Récupérer tous les produits en une seule requête
+                const productIds = data.transactions.map(t => t.productId);
+                const products = await tx.product.findMany({
+                    where: { 
+                        id: { in: productIds },
+                        entrepriseId: entreprise.id
+                    },
+                    select: {
+                        id: true,
+                        name: true,
+                        price: true,
+                        quantity: true
+                    }
+                });
+
+                const productMap = new Map(products.map(p => [p.id, p]));
+                
+                // Préparer les opérations
+                const updateOperations = [];
+                const createOperations = [];
+                
+                for (const transactionData of data.transactions) {
+                    const product = productMap.get(transactionData.productId);
+                    
+                    if (!product) {
+                        throw new Error(`Produit ${transactionData.productId} non trouvé dans la transaction`);
+                    }
+
+                    // Vérifier à nouveau le stock
+                    if (product.quantity < transactionData.quantity) {
+                        throw new Error(
+                            `Stock insuffisant pour "${product.name}". ` +
+                            `Disponible: ${product.quantity}, Demandé: ${transactionData.quantity}`
+                        );
+                    }
+
+                    const subtotal = transactionData.quantity * transactionData.price;
+                    
+                    // Ajouter l'opération de mise à jour
+                    updateOperations.push(
+                        tx.product.update({
+                            where: { 
+                                id: transactionData.productId,
+                                entrepriseId: entreprise.id
+                            },
+                            data: {
+                                quantity: { decrement: transactionData.quantity }
+                            }
+                        })
+                    );
+                    
+                    // Ajouter l'opération de création
+                    createOperations.push(
+                        tx.transaction.create({
+                            data: {
+                                type: transactionData.type,
+                                quantity: transactionData.quantity,
+                                price: transactionData.price,
+                                subtotal,
+                                productId: transactionData.productId,
+                                entrepriseId: entreprise.id,
+                                invoiceId: invoice.id,
+                                createdAt: new Date()
+                            }
+                        })
+                    );
+                }
+                
+                // Exécuter les mises à jour
+                await Promise.all(updateOperations);
+                
+                // Exécuter les créations
+                await Promise.all(createOperations);
+                
+                console.log("✅ Toutes les transactions créées");
+            }
+
+            // 3. RÉCUPÉRATION DE LA FACTURE COMPLÈTE
+            const completeInvoice = await tx.invoice.findUnique({
+                where: { id: invoice.id },
                 include: {
                     client: {
                         select: {
@@ -1502,98 +1621,55 @@ export async function createInvoice(data: {
                         }
                     }
                 }
-            })
+            });
 
-            // ✅ CRÉATION DES TRANSACTIONS ET DÉDUCTION DES STOCKS
-            if (data.transactions && data.transactions.length > 0) {
-                console.log("🔄 Création des transactions et déduction des stocks...")
-                
-                for (const transactionData of data.transactions) {
-                    // Créer la transaction
-                    const transaction = await tx.transaction.create({
-                        data: {
-                            type: transactionData.type,
-                            quantity: transactionData.quantity,
-                            price: transactionData.price,
-                            subtotal: transactionData.quantity * transactionData.price,
-                            productId: transactionData.productId,
-                            entrepriseId: entreprise.id,
-                            invoiceId: invoice.id
-                        }
-                    })
-
-                    console.log(`📦 Transaction créée: ${transaction.id}`)
-
-                    // DÉDUIRE LE STOCK
-                    const updatedProduct = await tx.product.update({
-                        where: { 
-                            id: transactionData.productId,
-                            entrepriseId: entreprise.id
-                        },
-                        data: {
-                            quantity: { decrement: transactionData.quantity }
-                        },
-                        select: {
-                            id: true,
-                            name: true,
-                            quantity: true,
-                            unit: true
-                        }
-                    })
-
-                    console.log(`📊 Stock mis à jour: ${updatedProduct.name} → ${updatedProduct.quantity} ${updatedProduct.unit}`)
-
-                    // ✅ VÉRIFICATION FINALE POUR ÉVITER LES STOCKS NÉGATIFS
-                    if (updatedProduct.quantity < 0) {
-                        throw new Error(`Stock négatif détecté pour "${updatedProduct.name}" après déduction`)
-                    }
-                }
+            if (!completeInvoice) {
+                throw new Error("Erreur lors de la récupération de la facture");
             }
 
-            console.log("✅ Facture créée avec succès:", invoice.invoiceNumber)
+            console.log("🎉 Facture créée avec succès!");
             
             return convertInvoice({
-                ...invoice,
-                clientName: invoice.client.name,
-                transactionCount: invoice.transactions.length,
-                client: invoice.client,
-                transactions: invoice.transactions,
-                tvaEnabled: invoice.tva > 0
-            }) as Invoice
-        })
+                ...completeInvoice,
+                clientName: completeInvoice.client.name,
+                transactionCount: completeInvoice.transactions.length,
+                client: completeInvoice.client,
+                transactions: completeInvoice.transactions,
+                tvaEnabled: completeInvoice.tva > 0
+            }) as Invoice;
+        }, {
+            maxWait: 15000, // Augmenté à 15 secondes
+            timeout: 15000  // Augmenté à 15 secondes
+        });
     } catch (error) {
-        console.error("❌ Erreur création facture:", error)
+        console.error("❌ Erreur création facture:", error);
         
-        // Messages d'erreur améliorés
-        if (error instanceof Error) {
-            if (error.message.includes('STOCKS INSUFFISANTS')) {
-                throw new Error(`❌ ${error.message}`)
+        // Messages d'erreur plus spécifiques
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            if (error.code === 'P2028') {
+                throw new Error("❌ L'opération a pris trop de temps. Réduisez le nombre de produits ou réessayez.");
             }
+            if (error.code === 'P2002') {
+                throw new Error("❌ Une facture avec ce numéro existe déjà.");
+            }
+        }
+        
+        if (error instanceof Error) {
             if (error.message.includes('Stock insuffisant')) {
-                throw new Error(`❌ ${error.message}`)
+                throw new Error(`❌ ${error.message}`);
+            }
+            if (error.message.includes('Trop de produits')) {
+                throw new Error(`❌ ${error.message}`);
             }
             if (error.message.includes('Produit non trouvé')) {
-                throw new Error(`❌ ${error.message}`)
-            }
-            if (error.message.includes('Quantité invalide')) {
-                throw new Error(`❌ ${error.message}`)
-            }
-            if (error.message.includes('Stock négatif')) {
-                throw new Error(`❌ ${error.message}`)
+                throw new Error(`❌ ${error.message}`);
             }
             if (error.message.includes('numéro de facture')) {
-                throw new Error(`❌ ${error.message}`)
+                throw new Error(`❌ ${error.message}`);
             }
         }
         
-        // Gestion spécifique des erreurs Prisma
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            if (error.code === 'P2002') {
-                throw new Error("❌ Une facture avec ce numéro existe déjà dans votre entreprise.")
-            }
-        }
-        
-        throw new Error("❌ Erreur lors de la création de la facture. Vérifiez les données et réessayez.")
+        throw new Error("❌ Erreur lors de la création de la facture. Vérifiez les données et réessayez.");
     }
 }
 
@@ -2343,7 +2419,6 @@ export async function updateInvoice(
     const entreprise = await getEntreprise(email);
     if (!entreprise) throw new Error("Entreprise non trouvée");
 
-    // Vérifier que la facture existe et appartient à l'entreprise
     const existingInvoice = await prisma.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -2362,12 +2437,9 @@ export async function updateInvoice(
       throw new Error("Facture non trouvée");
     }
 
-    // Commencer une transaction pour garantir l'intégrité des données
     return await prisma.$transaction(async (tx) => {
-      // 1. Calculer la différence de stock pour chaque produit
       const stockChanges: { [productId: string]: number } = {};
 
-      // Initialiser avec les anciennes transactions (on va restaurer ce stock)
       for (const oldTransaction of existingInvoice.transactions) {
         if (oldTransaction.type === "SALE") {
           stockChanges[oldTransaction.productId] = 
@@ -2375,15 +2447,13 @@ export async function updateInvoice(
         }
       }
 
-      // Soustraire les nouvelles transactions (on va déduire ce stock)
       for (const newTransaction of data.transactions) {
         stockChanges[newTransaction.productId] = 
           (stockChanges[newTransaction.productId] || 0) - newTransaction.quantity;
       }
 
-      // 2. Vérifier le stock disponible pour chaque produit
       for (const [productId, netChange] of Object.entries(stockChanges)) {
-        if (netChange < 0) { // Si on doit déduire du stock
+        if (netChange < 0) {
           const product = await tx.product.findUnique({
             where: {
               id: productId,
@@ -2406,7 +2476,6 @@ export async function updateInvoice(
         }
       }
 
-      // 3. Mettre à jour les stocks
       for (const [productId, netChange] of Object.entries(stockChanges)) {
         if (netChange !== 0) {
           await tx.product.update({
@@ -2416,21 +2485,19 @@ export async function updateInvoice(
             },
             data: {
               quantity: {
-                increment: netChange // netChange peut être positif (ajout) ou négatif (déduction)
+                increment: netChange
               },
             },
           });
         }
       }
 
-      // 4. Supprimer les anciennes transactions
       await tx.transaction.deleteMany({
         where: {
           invoiceId: invoiceId,
         },
       });
 
-      // 5. Mettre à jour la facture (sans stocker le résultat inutile)
       await tx.invoice.update({
         where: {
           id: invoiceId,
@@ -2446,7 +2513,6 @@ export async function updateInvoice(
         },
       });
 
-      // 6. Créer les nouvelles transactions
       for (const transactionData of data.transactions) {
         await tx.transaction.create({
           data: {
@@ -2461,7 +2527,6 @@ export async function updateInvoice(
         });
       }
 
-      // 7. Récupérer la facture complète avec toutes les relations après mise à jour
       const completeInvoice = await tx.invoice.findUnique({
         where: {
           id: invoiceId,
@@ -2520,6 +2585,9 @@ export async function updateInvoice(
         transactions: completeInvoice.transactions,
         tvaEnabled: completeInvoice.tva > 0,
       }) as Invoice;
+    }, {
+      maxWait: 10000,
+      timeout: 10000
     });
   } catch (error) {
     console.error("❌ Erreur mise à jour facture:", error);
